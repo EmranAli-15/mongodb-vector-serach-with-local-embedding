@@ -184,10 +184,9 @@ def get(text):
 
 
 
-@app.route("/hybrid/<ask>")
-def hybrid(ask):
+@app.route("/text/<ask>")
+def text(ask):
     query_text = ask
-    query_vector = model.encode(ask).tolist()
 
     pipeline = [
         {
@@ -213,6 +212,40 @@ def hybrid(ask):
 
     result = list(collection.aggregate(pipeline))
     return f"{result}"
+
+
+
+
+@app.route("/hybrid/<ask>")
+def hybrid(ask):
+    query_text = ask
+    query_vector = model.encode(f"{ask}").tolist()
+
+    pipeline = [
+        {
+            "$search":{
+                "index":"default",
+                "text":{
+                    "query": query_text,
+                    "path": "text"
+                }
+            }
+        },
+        {
+            "$limit": 5
+        },
+        {
+            "$project":{
+                "_id": 0,
+                "text": 1,
+                #"score": {"$meta": "vectorSearchScore"}
+            }
+        }
+    ]
+
+    result = list(collection.aggregate(pipeline))
+    return f"{result}"
+
 
 
 
