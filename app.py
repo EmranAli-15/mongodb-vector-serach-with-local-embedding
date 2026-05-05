@@ -25,7 +25,7 @@ embeddings_model = HuggingFaceEmbeddings(model_name=MODEL_NAME)
 
 
 
-mongo_client = pymongo.MongoClient("")
+mongo_client = pymongo.MongoClient("mongodb+srv://BookWorld:1k9x4ClxqAlewBWZ@cluster0.2b4mnlf.mongodb.net/BookWorld?retryWrites=true&w=majority&appName=Cluster0")
 db = mongo_client["BookWorld"]
 collection = db["vector-data"]
 
@@ -34,8 +34,8 @@ collection = db["vector-data"]
 def index():
     return "Hello"
 
-@app.route("/embbeding")
-def embbeding():
+@app.route("/embedding")
+def embedding():
     full_text = """
 আমি/আমারা কারা? : আমি বুক ওয়ার্ল্ড এজেন্ট, আপনার কোন সাহায্য লাগলে জানাবেন।
 About us or who me/we: I’m book world agent, let me know if you need any help.
@@ -182,6 +182,37 @@ def get(text):
     result = list(collection.aggregate(pipeline))
     return f"{result}"
 
+
+
+@app.route("/hybrid/<ask>")
+def hybrid(ask):
+    query_text = ask
+    query_vector = model.encode(ask).tolist()
+
+    pipeline = [
+        {
+            "$search":{
+                "index":"default",
+                "text":{
+                    "query": query_text,
+                    "path": "text"
+                }
+            }
+        },
+        {
+            "$limit": 5
+        },
+        {
+            "$project":{
+                "_id": 0,
+                "text": 1,
+                #"score": {"$meta": "vectorSearchScore"}
+            }
+        }
+    ]
+
+    result = list(collection.aggregate(pipeline))
+    return f"{result}"
 
 
 
