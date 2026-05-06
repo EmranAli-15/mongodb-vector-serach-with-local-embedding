@@ -1,6 +1,7 @@
 from flask import Flask, request
 import os
 import json
+from flask import jsonify
 import chromadb
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
@@ -221,11 +222,30 @@ def hybrid(ask):
     query_text = ask
     query_vector = model.encode(f"{ask}").tolist()
 
-    pipeline = [
+    vector_results = list(collection.aggregate([
+        {
+            "$vectorSearch":{
+                "index": "vector_index",
+                "path":"embedding",
+                "queryVector": query_vector,
+                "numCandidates": 50,
+                "limit": 5
+            }
+        },
+        {
+            "$project": {
+                "text": 1,
+                "_id": 1
+            }
+        }
+    ]))
+
+
+    text_results = list(collection.aggregate([
         {
             "$search":{
-                "index":"default",
-                "text":{
+                "index": "default",
+                "text": {
                     "query": query_text,
                     "path": "text"
                 }
@@ -235,16 +255,44 @@ def hybrid(ask):
             "$limit": 5
         },
         {
-            "$project":{
-                "_id": 0,
+            "$project": {
                 "text": 1,
-                #"score": {"$meta": "vectorSearchScore"}
+                "_id": 1
             }
         }
-    ]
+    ]))
 
-    result = list(collection.aggregate(pipeline))
-    return f"{result}"
+    rrf_map = {}
+    k = 60
+
+    # Process Vector Results
+    for rank, doc in enumerate(vector_results, 1):
+        doc_id = str(doc['_id'])
+        # If ID isn't in map, initialize it
+        if doc_id not in rrf_map:
+            rrf_map[doc_id] = {"score": 0, "text": doc['text']}
+    
+        # Add to the score
+        rrf_map[doc_id]["score"] += (1 / (k + rank))
+
+    # Process Text Results
+    for rank, doc in enumerate(text_results, 1):
+        doc_id = str(doc['_id'])
+        # If ID isn't in map (not found by vector), initialize it
+        if doc_id not in rrf_map:
+            rrf_map[doc_id] = {"score": 0, "text": doc['text']}
+    
+        # Add to the score (this creates the "Hybrid" boost for matches in both)
+        rrf_map[doc_id]["score"] += (1 / (k + rank))
+
+    # Convert dictionary to a list and sort by score descending
+    sorted_results = sorted(rrf_map.values(), key=lambda x: x['score'], reverse=True)
+
+    # Final top 5 for your RAG prompt
+    top_5_text = [item['text'] for item in sorted_results[:5]]
+
+    # Return as clean JSON
+    return f"{top_5_text}"
 
 
 
